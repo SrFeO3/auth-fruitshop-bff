@@ -1,5 +1,5 @@
 # --- Stage 1: Build the application ---
-FROM rust:1.89-bookworm as builder
+FROM rust:1.91-bookworm as builder
 
 # Install git
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*

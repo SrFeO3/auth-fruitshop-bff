@@ -3,22 +3,25 @@ window.addEventListener('DOMContentLoaded', async () => {
   const authControls = document.getElementById('auth-controls');
   const cartControls = document.getElementById('cart-controls');
 
+  // Base URL for the backend API.
+  const API_BASE_URL = 'https://www.sr.example.com:8000/api';
+
+  // Base URL for static assets like images.
+  const STATIC_ASSETS_BASE_URL = `https://sirius.sr.example.com:8000/images`;
+
   // OIDC Configuration
   const oidcConfig = {
-    issuer: 'https://auth.wgd.example.com:8000',
+    issuer: 'https://auth.sr.example.com:8000',
     clientId: 'fruit-shop',
     // Always redirect to the root of the application after login.
     // This must match one of the URIs registered in the auth server.
     // This is more robust than using window.location.pathname.
-    redirectUri: `${window.location.origin}/`,
+    redirectUri: `${window.location.origin}/shop/`,
     // Request 'offline_access' to get a refresh token for persistent sessions.
     // The term 'offline' here refers to the user not being present, allowing the
     // application to refresh tokens in the background without user interaction.
     scope: 'openid profile offline_access',
   };
-  const bffConfig = {
-    baseUri: 'https://bff.wgd.example.com:8000',
-  }
 
   let accessToken = null;
   let refreshToken = null;
@@ -84,7 +87,7 @@ window.addEventListener('DOMContentLoaded', async () => {
           item.dataset.fruitId = fruit.id; // Add ID for navigation
           item.className = 'fruit-item';
           item.innerHTML = `
-            <img src="images/${fruit.name}.png" alt="${fruit.name}" class="fruit-image" onerror="this.style.display='none'">
+            <img src="${STATIC_ASSETS_BASE_URL}/${fruit.name}.png" alt="${fruit.name}" class="fruit-image" onerror="this.style.display='none'">
             <div class="fruit-info">
               <h3>${fruit.name}</h3>
               <p>Origin: ${fruit.origin}</p>
@@ -110,7 +113,7 @@ window.addEventListener('DOMContentLoaded', async () => {
             <div class="fruit-detail-container">
                 <a href="#" class="back-link">&larr; Back to list</a>
                 <div class="fruit-detail-content">
-                    <img src="images/${fruit.name}.png" alt="${fruit.name}" class="fruit-detail-image" onerror="this.style.display='none'">
+                    <img src="${STATIC_ASSETS_BASE_URL}/${fruit.name}.png" alt="${fruit.name}" class="fruit-detail-image" onerror="this.style.display='none'">
                     <div class="fruit-detail-info">
                         <h1>${fruit.name}</h1>
                         <p class="detail-origin"><strong>Origin:</strong> ${fruit.origin}</p>
@@ -142,10 +145,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     } else {
       let total = 0;
       cart.forEach(item => {
-        total += item.price * item.quantity;
+        total += (item.price || 0) * item.quantity;
         cartHTML += `
           <div class="cart-item">
-            <img src="images/${item.name}.png" alt="${item.name}" class="fruit-image" style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px;">
+            <img src="${STATIC_ASSETS_BASE_URL}/${item.name}.png" alt="${item.name}" class="fruit-image" style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px;">
             <div class="cart-item-info">
               <h3>${item.name}</h3>
               <p>${item.price} yen</p>
@@ -286,7 +289,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     console.log('[exchangeCodeForToken] Retrieved code_verifier from sessionStorage.');
     sessionStorage.removeItem('oidc-code-verifier');
     try {
-      const response = await fetch(`${bffConfig.baseUri}/api/token`, {
+      const response = await fetch(`${oidcConfig.issuer}/api/token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -399,7 +402,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       throw new Error("Not authenticated. Please log in.");
     }
 
-    const apiUrl = `https://bff.wgd.example.com:8000/api/fruits/${fruitId}`;
+    const apiUrl = `${API_BASE_URL}/api/fruits/${fruitId}`;
 
     // Try fetching, with one retry attempt after a token refresh.
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -448,7 +451,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     // This prevents re-fetching in a loop if the API returns an empty array.
     fruitsFetched = true;
 
-    const apiUrl = 'https://bff.wgd.example.com:8000/api/fruits';
+    const apiUrl = `${API_BASE_URL}/api/fruits`;
 
     // Try fetching, with one retry attempt after a token refresh.
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -562,7 +565,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     console.log(`[init] Retrieved saved state from sessionStorage: ${savedState}`);
     sessionStorage.removeItem('oidc-state');
     window.history.replaceState({}, document.title, window.location.pathname);
-
+    
     if (state === savedState) {
       console.log('[init] State matches. Proceeding to exchange code for token.');
       await exchangeCodeForToken(code);
