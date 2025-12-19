@@ -26,7 +26,7 @@ services:
     environment:
       DATABASE_URL: "postgres://user:password@db:5432/fruitdb"
       OIDC_ISSUER_URL_INTERNAL: http://authserver:8082
-      OIDC_ISSUER_URL_EXTERNAL: "https://auth.wgd.example.com:8000"
+      OIDC_ISSUER_URL_EXTERNAL: "https://auth.sr.example.com:8000"
       CORS_ALLOWED_ORIGINS: "http://localhost:8080"
     depends_on:
       db:
