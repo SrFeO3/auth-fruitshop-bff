@@ -4,7 +4,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const cartControls = document.getElementById('cart-controls');
 
   // Base URL for the backend API.
-  const API_BASE_URL = 'https://www.sr.example.com:8000/api';
+  const API_BASE_URL = 'https://www.sr.example.com:8000';
 
   // Base URL for static assets like images.
   const STATIC_ASSETS_BASE_URL = `https://sirius.sr.example.com:8000/images`;
@@ -282,70 +282,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     updateUI();
   };
 
-  // Exchanges the authorization code for an access token
-  const exchangeCodeForToken = async (code) => {
-    console.log('[exchangeCodeForToken] Starting token exchange process...');
-    const codeVerifier = sessionStorage.getItem('oidc-code-verifier');
-    console.log('[exchangeCodeForToken] Retrieved code_verifier from sessionStorage.');
-    sessionStorage.removeItem('oidc-code-verifier');
-    try {
-      const response = await fetch(`${oidcConfig.issuer}/api/token`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          grant_type: 'authorization_code',
-          code: code,
-          redirect_uri: oidcConfig.redirectUri,
-          client_id: oidcConfig.clientId,
-          code_verifier: codeVerifier, // Add the verifier for PKCE
-        }),
-      });
-
-      console.log(`[exchangeCodeForToken] Received response with status: ${response.status}`);
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[exchangeCodeForToken] Token exchange failed. Server responded with: ${errorText}`);
-        throw new Error(`Token exchange failed: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      console.log('[exchangeCodeForToken] Successfully parsed JSON response:', data);
-
-      // Check if the response is from a BFF that handles the token server-side
-      if (data.status === "ok" && data.message === "Token request processed by BFF") {
-        console.log('[exchangeCodeForToken] BFF has processed the token. No tokens will be stored on the client.');
-        // In a BFF flow, we might get user info back, or we might need another call.
-        // For now, we'll just set a generic user to signify login.
-        user = { name: 'Authenticated User' }; // Or parse from response if available
-        localStorage.setItem('user', JSON.stringify(user));
-      } else if (data.access_token && data.id_token) {
-        // This is the original flow where the client handles tokens
-        accessToken = data.access_token;
-        localStorage.setItem('access_token', accessToken);
-        console.log('[exchangeCodeForToken] Access token stored in localStorage.');
-
-        if (data.refresh_token) {
-          refreshToken = data.refresh_token;
-          localStorage.setItem('refresh_token', refreshToken);
-          console.log('[exchangeCodeForToken] Refresh token stored in localStorage.');
-        }
-
-        const idTokenPayload = parseJwt(data.id_token);
-        if (idTokenPayload && idTokenPayload.name) {
-          user = { name: idTokenPayload.name };
-          localStorage.setItem('user', JSON.stringify(user));
-          console.log('[exchangeCodeForToken] User info stored in localStorage:', user);
-        }
-      }
-      console.log('[exchangeCodeForToken] Token exchange process finished successfully.');
-    } catch (error) {
-      console.error('Error exchanging code for token:', error);
-      pageContent.innerHTML = `<p>Authentication failed. Please try logging in again.</p>`;
-    }
-  };
-
   // Uses the refresh token to get a new access token
   const refreshAccessToken = async () => {
     const storedRefreshToken = localStorage.getItem('refresh_token');
@@ -558,6 +494,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const state = params.get('state');
 
   if (code && state) {
+    /* skip exchangeCodeForToken
     console.log(`[init] Found 'code' and 'state' in URL parameters.`);
     console.log(`[init] Code: ${code.substring(0, 10)}... (truncated)`);
     console.log(`[init] State: ${state}`);
@@ -566,6 +503,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     sessionStorage.removeItem('oidc-state');
     window.history.replaceState({}, document.title, window.location.pathname);
     
+
     if (state === savedState) {
       console.log('[init] State matches. Proceeding to exchange code for token.');
       await exchangeCodeForToken(code);
@@ -573,6 +511,9 @@ window.addEventListener('DOMContentLoaded', async () => {
       console.error(`[init] State mismatch! CSRF attack? URL state: ${state}, Saved state: ${savedState}`);
       pageContent.innerHTML = `<p>Authentication failed due to invalid state. Please try again.</p>`;
     }
+      */
+
+    user = "Test BFF Authorized"
   } else {
     accessToken = localStorage.getItem('access_token');
     refreshToken = localStorage.getItem('refresh_token');
