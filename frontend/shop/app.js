@@ -9,60 +9,11 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Base URL for static assets like images.
   const STATIC_ASSETS_BASE_URL = `https://sirius.sr.example.com:8000/images`;
 
-  // OIDC Configuration
-  const oidcConfig = {
-    issuer: 'https://auth.sr.example.com:8000',
-    clientId: 'fruit-shop',
-    // Always redirect to the root of the application after login.
-    // This must match one of the URIs registered in the auth server.
-    // This is more robust than using window.location.pathname.
-    redirectUri: `${window.location.origin}/shop/`,
-    // Request 'offline_access' to get a refresh token for persistent sessions.
-    // The term 'offline' here refers to the user not being present, allowing the
-    // application to refresh tokens in the background without user interaction.
-    scope: 'openid profile offline_access',
-  };
-
-  let accessToken = null;
-  let refreshToken = null;
   let user = null;
   let allFruits = []; // To cache the list of fruits from the API
   let fruitsFetched = false; // Flag to prevent re-fetching in a loop
   let cart = []; // To hold cart items: [{ id, name, price, quantity }]
 
-  // --- Helper Functions ---
-
-  // Parses the payload of a JWT token
-  const parseJwt = (token) => {
-    try {
-      const base64Url = token.split('.')[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-      }).join(''));
-      return JSON.parse(jsonPayload);
-    } catch (e) {
-      console.error("Failed to parse JWT", e);
-      return null;
-    }
-  };
-
-  // --- PKCE Helper Functions ---
-
-  // Generates a cryptographically random string for the code_verifier
-  const generateCodeVerifier = () => {
-    const randomBytes = new Uint8Array(32);
-    window.crypto.getRandomValues(randomBytes);
-    return btoa(String.fromCharCode.apply(null, randomBytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-  };
-
-  // Hashes the code_verifier to create the code_challenge
-  const generateCodeChallenge = async (verifier) => {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(verifier);
-    const hash = await window.crypto.subtle.digest('SHA-256', data);
-    return btoa(String.fromCharCode.apply(null, new Uint8Array(hash))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-  };
   // --- UI Rendering ---
 
   const renderListPage = () => {
@@ -220,259 +171,75 @@ window.addEventListener('DOMContentLoaded', async () => {
     renderCartPage();
   };
 
-  // Redirects to the OIDC server for login
-  const login = async () => {
-    try {
-      // Generate a random string for the state parameter (CSRF protection)
-      const state = Math.random().toString(36).substring(2);
-      sessionStorage.setItem('oidc-state', state);
-
-      // Generate and store the PKCE code verifier
-      const codeVerifier = generateCodeVerifier();
-      sessionStorage.setItem('oidc-code-verifier', codeVerifier);
-      const codeChallenge = await generateCodeChallenge(codeVerifier);
-
-      const params = new URLSearchParams({
-        response_type: 'code',
-        client_id: oidcConfig.clientId,
-        redirect_uri: oidcConfig.redirectUri,
-        scope: oidcConfig.scope,
-        state: state,
-        code_challenge: codeChallenge,
-        code_challenge_method: 'S256',
-      });
-
-      window.location.href = `${oidcConfig.issuer}/authorize?${params.toString()}`;
-    } catch (error) {
-      console.error('Login failed:', error);
-      alert('Login process failed. Please check the console for more details. This might be due to an insecure connection (non-HTTPS or non-localhost).');
-    }
-  };
-
-  // Clears session and updates UI
-  const logout = async () => {
-    // Retrieve the token from memory or localStorage on token expiry.
-    const tokenToRevoke = accessToken || localStorage.getItem('access_token');
-
-    if (tokenToRevoke) {
-      try {
-        // Send logout notification to the server and disable the refresh token.
-        const response = await fetch(`${oidcConfig.issuer}/api/logout`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${tokenToRevoke}`
-          }
-        });
-        if (response.ok) {
-          console.log('Server-side session successfully revoked.');
-        }
-      } catch (error) {
-        console.error('Failed to revoke server-side session, but proceeding with client-side logout.', error);
-      }
-    }
-
-    // Clear client state regardless of server outcome
-    accessToken = null;
-    user = null;
-    refreshToken = null;
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('refresh_token');
-    window.location.hash = ''; // Move to homepage after logout
-    updateUI();
-  };
-
-  // Uses the refresh token to get a new access token
-  const refreshAccessToken = async () => {
-    const storedRefreshToken = localStorage.getItem('refresh_token');
-    if (!storedRefreshToken) {
-      console.log('No refresh token found. Logging out.');
-      logout();
-      return null;
-    }
-
-    try {
-      const response = await fetch(`${oidcConfig.issuer}/api/token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type: 'refresh_token',
-          refresh_token: storedRefreshToken,
-          client_id: oidcConfig.clientId,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Refresh token exchange failed, server responded with ' + response.status);
-      }
-
-      const data = await response.json();
-      if (data.access_token) {
-        accessToken = data.access_token;
-        localStorage.setItem('access_token', accessToken);
-
-        // Optionally update user info if a new ID token is provided
-        if (data.id_token) {
-          const idTokenPayload = parseJwt(data.id_token);
-          if (idTokenPayload && idTokenPayload.name) {
-            user = { name: idTokenPayload.name };
-            localStorage.setItem('user', JSON.stringify(user));
-          }
-        }
-        return accessToken;
-      } else {
-        throw new Error('No access token in refresh response');
-      }
-    } catch (error) {
-      console.error('Error refreshing token:', error);
-      // The refresh token is likely invalid or expired, so log out completely.
-      logout();
-      return null;
-    }
-  };
-
-  // Fetches a single fruit's details from the protected backend API
+  // Fetches a single fruit's details from the backend API
   const fetchFruitDetails = async (fruitId) => {
-    if (!user) {  // In a BFF flow, accessToken might be null, but we are still authenticated via session cookie.
-      console.log("fetchFruitDetails: Not logged in, skipping fetch.");
-      throw new Error("Not authenticated. Please log in.");
-    }
-
     const apiUrl = `${API_BASE_URL}/api/fruits/${fruitId}`;
 
-    // Try fetching, with one retry attempt after a token refresh.
-    for (let attempt = 0; attempt < 2; attempt++) {
-        console.log(`[fetchFruitDetails] Attempt ${attempt + 1}: Fetching details for fruit ID ${fruitId} from ${apiUrl}`);
-        const response = await fetch(apiUrl, {
-            headers: { 'Authorization': `Bearer ${accessToken}` }
-        });
+    try {
+      const response = await fetch(apiUrl, { credentials: 'include' });
 
-        if (response.ok) {
-            return await response.json();
-        }
+      if (response.ok) {
+        return await response.json();
+      }
 
-        if (response.status === 404) {
-            throw new Error(`Fruit with ID ${fruitId} not found.`);
-        }
+      if (response.status === 404) {
+        throw new Error(`Fruit with ID ${fruitId} not found.`);
+      }
 
-        if (response.status !== 401) {
-            const errorText = await response.text();
-            throw new Error(`Server error (HTTP ${response.status}): ${errorText}`);
-        }
-
-        if (attempt > 0 || !accessToken) { // If no accessToken, we can't refresh.
-            console.error('API call for details failed with 401 even after refreshing token. Logging out.');
-            logout();
-            throw new Error('Authentication failed after token refresh.');
-        }
-
-        console.log('Access token expired or invalid. Attempting to refresh...');
-        const newAccessToken = await refreshAccessToken();
-        if (!newAccessToken) {
-            throw new Error('Token refresh failed.');
-        }
-        console.log('Token refreshed successfully. Retrying API call for details...');
+      const errorText = await response.text();
+      throw new Error(`Server error (HTTP ${response.status}): ${errorText}`);
+    } catch (error) {
+      console.error('Error fetching fruit details:', error);
+      throw error;
     }
-    throw new Error('Failed to fetch fruit details after all attempts.');
   };
 
-  // Fetches fruits from the protected backend API
+  // Fetches fruits from the backend API
   const fetchFruits = async () => {
-    if (!user) {  // In a BFF flow, accessToken might be null, but we are still authenticated via session cookie.
-      console.log("fetchFruits: Not logged in, skipping fetch.");
-      return;
-    }
-
     // Mark as fetched once we start the process.
     // This prevents re-fetching in a loop if the API returns an empty array.
     fruitsFetched = true;
 
     const apiUrl = `${API_BASE_URL}/api/fruits`;
 
-    // Try fetching, with one retry attempt after a token refresh.
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        console.log(`[fetchFruits] Attempt ${attempt + 1}: Fetching all fruits from ${apiUrl}`);
-        const response = await fetch(apiUrl, {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`
-          }
-        });
+    try {
+      const response = await fetch(apiUrl, { credentials: 'include' });
 
-        if (response.ok) {
-          const fruits = await response.json();
-          allFruits = fruits; // Cache the fruit list
-          renderListPage(); // Render the page with the fetched data
-          return; // Success, exit the function.
-        }
-
-        if (response.status !== 401) {
-          // Handle non-authentication errors (e.g., 500 Internal Server Error)
-          const errorText = await response.text();
-          throw new Error(`Server error (HTTP ${response.status}): ${errorText}`);
-        }
-
-        // If we are here, it's a 401 error.
-        // On the first attempt, try to refresh the token.
-        // On the second attempt, fail and log out.
-        if (attempt > 0 || !accessToken) { // If no accessToken, we can't refresh.
-          console.error('API call failed with 401 even after refreshing token. Logging out.');
-          logout();
-          return;
-        }
-
-        console.log('Access token expired or invalid. Attempting to refresh...');
-        const newAccessToken = await refreshAccessToken();
-        if (!newAccessToken) {
-          // refreshAccessToken already handled the logout process. Stop everything.
-          console.log("fetchFruits: Token refresh failed, stopping attempts.");
-          return;
-        }
-        // If refresh was successful, the loop will continue for the second attempt.
-        console.log('Token refreshed successfully. Retrying API call...');
-
-      } catch (error) {
-        // This catches network errors or errors thrown from non-ok responses.
-        console.error('Error fetching fruits:', error);
-        pageContent.innerHTML = `<p>Failed to fetch data. Please check your connection and try again.</p>`;
-        return; // Exit the function on error.
+      if (response.ok) {
+        const fruits = await response.json();
+        allFruits = fruits; // Cache the fruit list
+        renderListPage(); // Render the page with the fetched data
+        return;
       }
+
+      const errorText = await response.text();
+      throw new Error(`Server error (HTTP ${response.status}): ${errorText}`);
+    } catch (error) {
+      console.error('Error fetching fruits:', error);
+      pageContent.innerHTML = `<p>Failed to fetch data. Please check your connection and try again.</p>`;
     }
   };
 
   // --- Main Application Router and Initializer ---
 
   const updateUI = async () => {
-    // In a BFF flow, we won't have an access token on the client,
-    // but we will have a user object if the login was successful.
-    // Therefore, we check for the presence of the user object to determine authentication status.
-    const isAuthenticated = !!user;
     updateCartControls();
 
-    if (isAuthenticated) {
-      authControls.innerHTML = `
-        <span class="login-status">Logged in as: <strong>${user.name}</strong></span>
-        <button id="logout-button" class="button button-primary">Logout</button>
-      `;
-      document.getElementById('logout-button').addEventListener('click', logout);
-
-      // Simple hash-based routing
-      const hash = window.location.hash;
-      if (hash.startsWith('#/fruits/')) {
-        const fruitId = hash.substring('#/fruits/'.length);
-        renderDetailPage(fruitId);
-      } else if (hash === '#cart') {
-        renderCartPage();
-      } else {
-        renderListPage();
-      }
+    if (user && user.name) {
+      authControls.innerHTML = `<span class="login-status">Logged in as: <strong>${user.name}</strong></span>`;
     } else {
-      authControls.innerHTML = `
-        <span class="login-status">Not logged in</span>
-        <button id="login-button" class="button button-primary">Login</button>
-      `;
-      document.getElementById('login-button').addEventListener('click', login);
-      pageContent.innerHTML = '<p>Please log in to see the fruits.</p>';
+      authControls.innerHTML = '';
+    }
+
+    // Simple hash-based routing
+    const hash = window.location.hash;
+    if (hash.startsWith('#/fruits/')) {
+      const fruitId = hash.substring('#/fruits/'.length);
+      renderDetailPage(fruitId);
+    } else if (hash === '#cart') {
+      renderCartPage();
+    } else {
+      renderListPage();
     }
   };
 
@@ -488,45 +255,14 @@ window.addEventListener('DOMContentLoaded', async () => {
       }
     }
 
-  console.log('[init] Checking for authorization code in URL...');
-  const params = new URLSearchParams(window.location.search);
-  const code = params.get('code');
-  const state = params.get('state');
-
-  if (code && state) {
-    /* skip exchangeCodeForToken
-    console.log(`[init] Found 'code' and 'state' in URL parameters.`);
-    console.log(`[init] Code: ${code.substring(0, 10)}... (truncated)`);
-    console.log(`[init] State: ${state}`);
-    const savedState = sessionStorage.getItem('oidc-state');
-    console.log(`[init] Retrieved saved state from sessionStorage: ${savedState}`);
-    sessionStorage.removeItem('oidc-state');
-    window.history.replaceState({}, document.title, window.location.pathname);
-    
-
-    if (state === savedState) {
-      console.log('[init] State matches. Proceeding to exchange code for token.');
-      await exchangeCodeForToken(code);
-    } else {
-      console.error(`[init] State mismatch! CSRF attack? URL state: ${state}, Saved state: ${savedState}`);
-      pageContent.innerHTML = `<p>Authentication failed due to invalid state. Please try again.</p>`;
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/me`, { credentials: 'include' });
+      if (response.ok) {
+        user = await response.json();
+      }
+    } catch (e) {
+      console.error('Failed to fetch user info:', e);
     }
-      */
-
-    user = "Test BFF Authorized"
-  } else {
-    accessToken = localStorage.getItem('access_token');
-    refreshToken = localStorage.getItem('refresh_token');
-    const storedUser = localStorage.getItem('user');
-    if (accessToken && storedUser) {
-        try {
-            user = JSON.parse(storedUser);
-        } catch (e) {
-            console.error("Failed to parse user from localStorage", e);
-            logout(); // Clear invalid state
-        }
-    }
-  }
 
     await updateUI();
   };
