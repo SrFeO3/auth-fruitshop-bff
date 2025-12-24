@@ -4,7 +4,10 @@ window.addEventListener('DOMContentLoaded', async () => {
   const cartControls = document.getElementById('cart-controls');
 
   // Base URL for the backend API.
-  const API_BASE_URL = 'https://www.sr.example.com:8000';
+  const API_BASE_URL = 'https://www.sr.example.com:8000/api';
+
+  // URL to fetch the current user's information.
+  const CURRENT_USER_API_URL = 'https://www.sr.example.com:8000/shop/api/me';
 
   // Base URL for static assets like images.
   const STATIC_ASSETS_BASE_URL = `https://sirius.sr.example.com:8000/images`;
@@ -173,7 +176,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // Fetches a single fruit's details from the backend API
   const fetchFruitDetails = async (fruitId) => {
-    const apiUrl = `${API_BASE_URL}/api/fruits/${fruitId}`;
+    const apiUrl = `${API_BASE_URL}/fruits/${fruitId}`;
 
     try {
       const response = await fetch(apiUrl, { credentials: 'include' });
@@ -200,7 +203,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     // This prevents re-fetching in a loop if the API returns an empty array.
     fruitsFetched = true;
 
-    const apiUrl = `${API_BASE_URL}/api/fruits`;
+    const apiUrl = `${API_BASE_URL}/fruits`;
 
     try {
       const response = await fetch(apiUrl, { credentials: 'include' });
@@ -256,7 +259,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/me`, { credentials: 'include' });
+      const response = await fetch(`${CURRENT_USER_API_URL}`, { credentials: 'include' });
       if (response.ok) {
         user = await response.json();
       }
