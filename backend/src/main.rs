@@ -112,6 +112,11 @@ struct Claims {
     iss: String,
     aud: String,
     sub: String,
+    exp: usize,
+    iat: Option<usize>,
+    jti: Option<String>,
+    scope: Option<String>,
+    client_id: Option<String>,
 }
 
 /// Represents the structure of the JWKS response from the auth server.
@@ -258,6 +263,18 @@ async fn auth_middleware(State(state): State<AppState>, request: Request, next: 
     
     // 2-2. Fetch Validation Key (Part 2: Get public key from JWKS client)
     let decoding_key = state.jwks_client.get_decoding_key(&kid).await?;
+
+    // Log token expiration details
+    if let Ok(token_data) = insecure_decode::<Claims>(token) {
+        let exp = token_data.claims.exp;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as usize;
+        let remaining = if exp > now { (exp - now) as isize } else { -((now - exp) as isize) };
+
+        info!("Auth middleware: Token Expiration Check: exp={}, now={}, remaining={}s", exp, now, remaining);
+    }
 
     // 2-3. Validate Claims
     // This single `decode` call verifies the signature, issuer, audience, and expiration time
