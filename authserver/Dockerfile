@@ -1,5 +1,5 @@
 # --- Stage 1: Build the application ---
-FROM rust:1.91-bookworm as builder
+FROM rust:1.92-bookworm AS builder
 
 # Install git
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
@@ -18,6 +18,7 @@ RUN cargo build --release
 # --- Stage 2: Create the final, minimal image ---
 FROM debian:bookworm-slim
 
+RUN apt-get update && apt-get -y install curl && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/src/auth-server/target/release/rudoidc /usr/local/bin/rudoidc
 
 CMD ["/usr/local/bin/rudoidc"]
